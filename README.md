@@ -4,12 +4,19 @@ Python (FastAPI) service that registers and verifies employee faces.
 Stores only face numbers (128 values per sample), never photos.
 
 ## Run
+    ## Setup (Windows, Python 3.10 to 3.12)
     python -m venv venv
     venv\Scripts\activate
-    pip install -r requirements.txt
+    pip install dlib-bin
+    pip install face_recognition_models Click numpy Pillow "setuptools<81"
+    pip install face_recognition --no-deps
+    pip install fastapi uvicorn python-multipart opencv-python requests
+
+## Run
     uvicorn main:app --reload
 
 Demo page: http://localhost:8000/demo/
+Note: faces.db is not in the repository. Each person registers their own face on their own machine.
 
 ## API
 | Endpoint | Sends | Returns |
