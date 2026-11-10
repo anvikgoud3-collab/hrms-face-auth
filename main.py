@@ -1,5 +1,5 @@
 from typing import List
-
+import time
 import face_recognition
 from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -19,7 +19,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 init_db()
+FAILED = {}       # employee_id -> times of failed attempts
+MAX_FAILS = 5     # allowed failed face attempts
+WINDOW = 600      # within 10 minutes
 
+
+def too_many_fails(emp):
+    now = time.time()
+    FAILED[emp] = [t for t in FAILED.get(emp, []) if now - t < WINDOW]
+    return len(FAILED[emp]) >= MAX_FAILS
 
 @app.get("/health")
 def health():
@@ -63,6 +71,9 @@ async def enroll(employee_id: str = Form(...), images: List[UploadFile] = File(.
 
 @app.post("/verify")
 async def verify(employee_id: str = Form(...), images: List[UploadFile] = File(...)):
+    if too_many_fails(employee_id):
+        return {"matched": False, "reason": "too_many_attempts"}
+
     saved = get_samples(employee_id)
     if not saved:
         return {"matched": False, "reason": "not_enrolled"}
@@ -74,10 +85,11 @@ async def verify(employee_id: str = Form(...), images: List[UploadFile] = File(.
         enc, count = get_encoding(await img.read())
         if enc is None:
             return {"matched": False, "reason": "no_clear_face"}
-        # compare with all saved samples and keep the closest one
         distances.append(round(float(min(face_recognition.face_distance(saved, enc))), 3))
 
     matched = all(d < MATCH_THRESHOLD for d in distances)
+    if not matched:
+        FAILED.setdefault(employee_id, []).append(time.time())
     return {
         "matched": matched,
         "distances": distances,
