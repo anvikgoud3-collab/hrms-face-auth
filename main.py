@@ -1,0 +1,88 @@
+from typing import List
+
+import face_recognition
+from fastapi import FastAPI, File, Form, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+
+from database import get_samples, init_db, save_samples
+from face_service import MATCH_THRESHOLD, get_encoding
+
+ENROLL_SAMPLES = 5   # photos needed to register
+VERIFY_FRAMES = 3    # pictures needed to log in
+
+app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:3000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+init_db()
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/detect")
+async def detect(image: UploadFile = File(...)):
+    data = await image.read()
+    encoding, count = get_encoding(data)
+    return {"faces_found": count, "ok": encoding is not None}
+
+
+@app.post("/enroll")
+async def enroll(employee_id: str = Form(...), images: List[UploadFile] = File(...)):
+    if len(images) < ENROLL_SAMPLES:
+        return {"ok": False, "message": f"Send at least {ENROLL_SAMPLES} photos"}
+
+    encodings = []
+    for img in images:
+        enc, count = get_encoding(await img.read())
+        if enc is None:
+            return {"ok": False, "message": "Every photo must show exactly one clear face"}
+        encodings.append(enc)
+
+    # safety check: all photos must be the same person
+    distances = [
+        round(float(face_recognition.face_distance([encodings[0]], e)[0]), 3)
+        for e in encodings[1:]
+    ]
+    if any(d > 0.6 for d in distances):
+        return {
+            "ok": False,
+            "message": "A photo looks different from photo 1. Retake the bad one.",
+            "distances_to_photo_1": distances,
+        }
+
+    save_samples(employee_id, encodings)
+    return {"ok": True, "message": f"Enrolled {len(encodings)} samples"}
+
+
+@app.post("/verify")
+async def verify(employee_id: str = Form(...), images: List[UploadFile] = File(...)):
+    saved = get_samples(employee_id)
+    if not saved:
+        return {"matched": False, "reason": "not_enrolled"}
+    if len(images) < VERIFY_FRAMES:
+        return {"matched": False, "reason": "need_more_frames"}
+
+    distances = []
+    for img in images:
+        enc, count = get_encoding(await img.read())
+        if enc is None:
+            return {"matched": False, "reason": "no_clear_face"}
+        # compare with all saved samples and keep the closest one
+        distances.append(round(float(min(face_recognition.face_distance(saved, enc))), 3))
+
+    matched = all(d < MATCH_THRESHOLD for d in distances)
+    return {
+        "matched": matched,
+        "distances": distances,
+        "reason": "ok" if matched else "face_mismatch",
+    }
+
+
+app.mount("/demo", StaticFiles(directory="static", html=True), name="demo")

@@ -1,0 +1,6 @@
+venv/
+__pycache__/
+faces.db
+*.jpg
+*.jpeg
+*.png

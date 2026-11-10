@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Face Login Demo</title>
+  <style>
+    body { font-family: Arial; max-width: 480px; margin: 30px auto; text-align: center; }
+    video { width: 100%; border-radius: 12px; transform: scaleX(-1); }
+    button { padding: 10px 16px; margin: 6px; cursor: pointer; }
+    #status { margin: 12px; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h2>Face Login (Demo)</h2>
+  <input id="empId" placeholder="Employee ID, e.g. EMP001">
+  <video id="video" autoplay playsinline muted></video>
+  <canvas id="canvas" style="display:none"></canvas>
+  <p id="status">Starting camera...</p>
+
+  <button id="enrollBtn">Register my face</button>
+  <button id="loginBtn">Sign in with face</button>
+
+  <div id="fallback" style="display:none">
+    <p>Face not recognised. Please use your password:</p>
+    <input type="password" placeholder="Password">
+    <button>Login</button>
+  </div>
+
+<script>
+  const API = "";   // same server. Your team will put the API address here.
+  const video = document.getElementById("video");
+  const canvas = document.getElementById("canvas");
+  const statusEl = document.getElementById("status");
+  const fallback = document.getElementById("fallback");
+
+  const setStatus = (text) => (statusEl.textContent = text);
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+  // 1. Turn the camera on
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then((stream) => { video.srcObject = stream; setStatus("Camera ready"); })
+    .catch(() => setStatus("Camera blocked. Please allow camera access."));
+
+  // 2. Take one picture from the video
+  function takePhoto() {
+    const w = 640;
+    const h = Math.round((video.videoHeight * w) / video.videoWidth);
+    canvas.width = w;
+    canvas.height = h;
+    canvas.getContext("2d").drawImage(video, 0, 0, w, h);
+    return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
+  }
+
+  // 3. Take several pictures, one after another
+  async function capture(count, delay, message) {
+    const photos = [];
+    for (let i = 0; i < count; i++) {
+      setStatus(message + " (" + (i + 1) + "/" + count + ")");
+      photos.push(await takePhoto());
+      await wait(delay);
+    }
+    return photos;
+  }
+
+  // 4. Send the pictures to the Python API
+  async function send(endpoint, photos) {
+    const form = new FormData();
+    form.append("employee_id", document.getElementById("empId").value.trim());
+    photos.forEach((p, i) => form.append("images", p, "photo" + i + ".jpg"));
+    const res = await fetch(API + endpoint, { method: "POST", body: form });
+    return res.json();
+  }
+
+  // Register button
+  document.getElementById("enrollBtn").onclick = async () => {
+    if (!document.getElementById("empId").value.trim()) return setStatus("Enter your employee ID first");
+    try {
+      const photos = await capture(5, 800, "Look at the camera, turn your head slightly");
+      setStatus("Saving...");
+      const result = await send("/enroll", photos);
+      setStatus(result.ok ? "Face registered ✅" : result.message);
+    } catch (e) {
+      setStatus("Could not reach the server");
+    }
+  };
+
+  // Sign-in button
+  document.getElementById("loginBtn").onclick = async () => {
+    if (!document.getElementById("empId").value.trim()) return setStatus("Enter your employee ID first");
+    fallback.style.display = "none";
+    try {
+      const photos = await capture(3, 700, "Look at the camera");
+      setStatus("Checking...");
+      const result = await send("/verify", photos);
+      if (result.matched) {
+        setStatus("Face matched ✅ You are logged in");
+      } else {
+        setStatus("Face not recognised");
+        fallback.style.display = "block";   // password login is always available
+      }
+    } catch (e) {
+      setStatus("Could not reach the server");
+      fallback.style.display = "block";
+    }
+  };
+</script>
+</body>
+</html>
