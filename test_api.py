@@ -28,3 +28,5 @@ print("VERIFY (me):", send("/verify", "EMP001", ["v1.jpg", "v2.jpg", "v3.jpg"]))
 # Test D: an employee who was never registered
 print("VERIFY (unknown):", send("/verify", "EMP999", ["v1.jpg", "v2.jpg", "v3.jpg"]))
 print("VERIFY (other person):", send("/verify", "EMP001", ["other.jpg", "other.jpg", "other.jpg"]))
+
+print("ATTEND:", send("/attendance/mark", "EMP001", ["v1.jpg", "v2.jpg", "v3.jpg"]))

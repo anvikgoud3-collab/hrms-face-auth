@@ -22,7 +22,17 @@ Note: faces.db is not in the repository. Each person registers their own face on
 | Endpoint | Sends | Returns |
 |---|---|---|
 | POST /enroll | employee_id + 5 or more photos (form-data, field "images") | { ok, message } |
-| POST /verify | employee_id + 3 photos (form-data, field "images") | { matched, distances, reason } |
+| POST /verify | employee_id + 3 photos | { matched, distances, reason } |
+| POST /attendance/mark | employee_id + 3 photos | { ok, action, time } or { ok: false, reason } |
+| GET /attendance/today | nothing | { date, records: [employee_id, check_in, check_out] } |
+
+verify reasons: ok, face_mismatch, not_enrolled, no_clear_face, need_more_frames, too_many_attempts
+attendance actions: check_in, check_out, too_soon (wait 1 minute), already_done
+
+## Safety rules built in
+- 5 photos to register, 3 matching pictures to log in or mark attendance.
+- Match limit 0.5 (strict). Only face numbers are saved, never photos.
+- After 5 failed face attempts in 10 minutes, face login is blocked for that employee (counter resets when the server restarts).
 
 reason values: ok, face_mismatch, not_enrolled, no_clear_face, need_more_frames
 
@@ -33,6 +43,7 @@ reason values: ok, face_mismatch, not_enrolled, no_clear_face, need_more_frames
 4. Add your dashboard's address to allow_origins in main.py (currently localhost:5173 and localhost:3000).
 
 ## Before production
+The attempt counter is in memory. Move it to the database for production.
 - Face matching alone must not create the login session. After matched is true, the backend should issue the login token or session itself.
 - Add a login attempt limit and HTTPS.
 - Get employee consent for face data and restrict who can read faces.db.

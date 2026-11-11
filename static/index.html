@@ -17,14 +17,20 @@
   <canvas id="canvas" style="display:none"></canvas>
   <p id="status">Starting camera...</p>
 
-  <button id="enrollBtn">Register my face</button>
+    <button id="enrollBtn">Register my face</button>
   <button id="loginBtn">Sign in with face</button>
+  <button id="attendBtn">Mark attendance</button>
 
   <div id="fallback" style="display:none">
     <p>Face not recognised. Please use your password:</p>
     <input type="password" placeholder="Password">
     <button>Login</button>
   </div>
+  <h3>Today's attendance</h3>
+  <table border="1" cellpadding="6" style="margin:auto">
+    <thead><tr><th>Employee</th><th>In</th><th>Out</th></tr></thead>
+    <tbody id="attBody"></tbody>
+  </table>
 
 <script>
   const API = "";   // same server. Your team will put the API address here.
@@ -103,6 +109,46 @@
       fallback.style.display = "block";
     }
   };
+    // Attendance: show today's table
+  async function loadAttendance() {
+    const res = await fetch(API + "/attendance/today");
+    const data = await res.json();
+    const body = document.getElementById("attBody");
+    body.innerHTML = "";
+    data.records.forEach((r) => {
+      const row = body.insertRow();
+      [r.employee_id, r.check_in, r.check_out || "-"].forEach((v) => {
+        row.insertCell().textContent = v;
+      });
+    });
+  }
+
+  // Attendance button
+  document.getElementById("attendBtn").onclick = async () => {
+    if (!document.getElementById("empId").value.trim()) return setStatus("Enter your employee ID first");
+    try {
+      const photos = await capture(3, 700, "Look at the camera");
+      setStatus("Checking...");
+      const result = await send("/attendance/mark", photos);
+      if (result.ok) {
+        const messages = {
+          check_in: "Checked in at " + result.time + " ✅",
+          check_out: "Checked out at " + result.time + " ✅",
+          too_soon: "Already checked in at " + result.time + ". Wait a minute to check out.",
+          already_done: "Already checked out today at " + result.time,
+        };
+        setStatus(messages[result.action]);
+        loadAttendance();
+      } else {
+        setStatus("Face not recognised (" + result.reason + ")");
+      }
+    } catch (e) {
+      setStatus("Could not reach the server");
+    }
+  };
+
+  loadAttendance();
+
 </script>
 </body>
 </html>
