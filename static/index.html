@@ -3,17 +3,34 @@
 <head>
   <meta charset="utf-8">
   <title>Face Login Demo</title>
-  <style>
+    <style>
     body { font-family: Arial; max-width: 480px; margin: 30px auto; text-align: center; }
     video { width: 100%; border-radius: 12px; transform: scaleX(-1); }
     button { padding: 10px 16px; margin: 6px; cursor: pointer; }
     #status { margin: 12px; font-weight: bold; }
+
+    #camBox { position: relative; overflow: hidden; border-radius: 12px; line-height: 0; }
+    #camBox video { display: block; }
+    #ring {
+      position: absolute; top: 10%; left: 50%; transform: translateX(-50%);
+      height: 80%; aspect-ratio: 1; border-radius: 50%;
+      border: 3px solid #4ade80;                      /* green */
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);    /* darkens everything outside the circle */
+      pointer-events: none;
+      transition: border-color 0.2s;
+    }
+    #ring.bad { border-color: #ef4444; }              /* red */
+    #hint { margin: 6px; font-size: 14px; }
   </style>
 </head>
 <body>
   <h2>Face Login (Demo)</h2>
   <input id="empId" placeholder="Employee ID, e.g. EMP001">
-  <video id="video" autoplay playsinline muted></video>
+      <div id="camBox">
+    <video id="video" autoplay playsinline muted></video>
+    <div id="ring" class="bad"></div>
+  </div>
+  <p id="hint">Looking for your face...</p>
   <canvas id="canvas" style="display:none"></canvas>
   <p id="status">Starting camera...</p>
 
@@ -48,22 +65,39 @@
     .catch(() => setStatus("Camera blocked. Please allow camera access."));
 
   // 2. Take one picture from the video
-  function takePhoto() {
-    const w = 640;
-    const h = Math.round((video.videoHeight * w) / video.videoWidth);
-    canvas.width = w;
-    canvas.height = h;
-    canvas.getContext("2d").drawImage(video, 0, 0, w, h);
+    function takePhoto() {
+    const vw = video.videoWidth, vh = video.videoHeight;
+    const side = Math.round(vh * 0.8);        // same size as the circle on screen
+    const sx = Math.round((vw - side) / 2);
+    const sy = Math.round((vh - side) / 2);
+    const out = 480;                          // size sent to the server
+
+    canvas.width = out;
+    canvas.height = out;
+    const ctx = canvas.getContext("2d");
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, out, out);             // everything starts black
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(out / 2, out / 2, out / 2, 0, Math.PI * 2);
+    ctx.clip();                               // only the circle area is kept
+    ctx.drawImage(video, sx, sy, side, side, 0, 0, out, out);
+    ctx.restore();
     return new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.9));
   }
 
   // 3. Take several pictures, one after another
-  async function capture(count, delay, message) {
+    async function capture(count, delay, message) {
+    capturing = true;               // pause the live circle check
     const photos = [];
-    for (let i = 0; i < count; i++) {
-      setStatus(message + " (" + (i + 1) + "/" + count + ")");
-      photos.push(await takePhoto());
-      await wait(delay);
+    try {
+      for (let i = 0; i < count; i++) {
+        setStatus(message + " (" + (i + 1) + "/" + count + ")");
+        photos.push(await takePhoto());
+        await wait(delay);
+      }
+    } finally {
+      capturing = false;            // resume it
     }
     return photos;
   }
@@ -146,7 +180,36 @@
       setStatus("Could not reach the server");
     }
   };
+  // Live face guide: circle is green only when exactly one clear face is inside it
+  const ring = document.getElementById("ring");
+  const hint = document.getElementById("hint");
+  let capturing = false;
 
+  async function checkFace() {
+    if (!capturing && video.videoWidth > 0) {
+      try {
+        const blob = await takePhoto();
+        const form = new FormData();
+        form.append("image", blob, "check.jpg");
+        const res = await fetch(API + "/detect", { method: "POST", body: form });
+        const data = await res.json();
+
+        ring.classList.toggle("bad", !data.ok);
+        if (data.ok) {
+          hint.textContent = "Face OK ✅";
+        } else if (data.faces_found > 1) {
+          hint.textContent = "Only one face inside the circle, please";
+        } else {
+          hint.textContent = "Move your face into the circle, look at the camera, use good light";
+        }
+      } catch (e) {
+        ring.classList.add("bad");
+        hint.textContent = "Cannot reach the server";
+      }
+    }
+    setTimeout(checkFace, 800);   // check again 0.8 seconds after this one finishes
+  }
+  checkFace();
   loadAttendance();
 
 </script>
